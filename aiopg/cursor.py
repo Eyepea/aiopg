@@ -1,17 +1,16 @@
 import asyncio
 
-import psycopg2
-
 from .log import logger
 
 
 class Cursor:
 
-    def __init__(self, conn, impl, timeout, echo):
+    def __init__(self, conn, impl, timeout, echo, psycopg2_module):
         self._conn = conn
         self._impl = impl
         self._timeout = timeout
         self._echo = echo
+        self._psycopg2_module = psycopg2_module
 
     @property
     def echo(self):
@@ -113,7 +112,7 @@ class Cursor:
     @asyncio.coroutine
     def executemany(self, operation, seq_of_parameters):
         # Not supported
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "executemany cannot be used in asynchronous mode")
 
     @asyncio.coroutine
@@ -343,17 +342,17 @@ class Cursor:
     @asyncio.coroutine
     def copy_from(self, file, table, sep='\t', null='\\N', size=8192,
                   columns=None):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "copy_from cannot be used in asynchronous mode")
 
     @asyncio.coroutine
     def copy_to(self, file, table, sep='\t', null='\\N', columns=None):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "copy_to cannot be used in asynchronous mode")
 
     @asyncio.coroutine
     def copy_expert(self, sql, file, size=8192):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "copy_expert cannot be used in asynchronous mode")
 
     @property

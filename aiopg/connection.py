@@ -1,17 +1,22 @@
 import asyncio
-
-import psycopg2
-from psycopg2.extensions import (
-    POLL_OK, POLL_READ, POLL_WRITE, POLL_ERROR)
-from psycopg2 import extras
+import importlib
 
 from .cursor import Cursor
 
 
 __all__ = ('connect',)
 
+_IMPORT_CACHE = {}
 
 TIMEOUT = 60.
+
+def get_psycopg2_module(psycopg2_module_name):
+    if psycopg2_module_name not in _IMPORT_CACHE:
+        return importlib.import_module(psycopg2_module_name)
+    else:
+        return _IMPORT_CACHE[psycopg2_module_name]
+
+
 
 
 @asyncio.coroutine
@@ -34,7 +39,7 @@ def _enable_hstore(conn):
 
 @asyncio.coroutine
 def connect(dsn=None, *, timeout=TIMEOUT, loop=None,
-            enable_json=True, enable_hstore=True, echo=False, **kwargs):
+            enable_json=True, enable_hstore=True, echo=False, psycopg2_module_name='psycopg2', **kwargs):
     """A factory for connecting to PostgreSQL.
 
     The coroutine accepts all parameters that psycopg2.connect() does
@@ -46,16 +51,18 @@ def connect(dsn=None, *, timeout=TIMEOUT, loop=None,
     if loop is None:
         loop = asyncio.get_event_loop()
 
+    psycopg2_module = get_psycopg2_module(psycopg2_module_name)
+
     waiter = asyncio.Future(loop=loop)
-    conn = Connection(dsn, loop, timeout, waiter, bool(echo), **kwargs)
+    conn = Connection(dsn, loop, timeout, waiter, bool(echo), psycopg2_module, **kwargs)
     yield from conn._poll(waiter, timeout)
     if enable_json:
-        extras.register_default_json(conn._conn)
+        psycopg2_module.extras.register_default_json(conn._conn)
     if enable_hstore:
         oids = yield from _enable_hstore(conn)
         if oids is not None:
             oid, array_oid = oids
-            extras.register_hstore(conn._conn, oid=oid, array_oid=array_oid)
+            psycopg2_module.extras.register_hstore(conn._conn, oid=oid, array_oid=array_oid)
     return conn
 
 
@@ -67,9 +74,10 @@ class Connection:
 
     """
 
-    def __init__(self, dsn, loop, timeout, waiter, echo, **kwargs):
+    def __init__(self, dsn, loop, timeout, waiter, echo, psycopg2_module, **kwargs):
         self._loop = loop
-        self._conn = psycopg2.connect(dsn, async=True, **kwargs)
+        self._psycopg2_module = psycopg2_module
+        self._conn = self._psycopg2_module.connect(dsn, async=True, **kwargs)
         self._dsn = self._conn.dsn
         assert self._conn.isexecuting(), "Is conn async at all???"
         self._fileno = self._conn.fileno()
@@ -88,7 +96,7 @@ class Connection:
 
         try:
             state = self._conn.poll()
-        except (psycopg2.Warning, psycopg2.Error) as exc:
+        except (self._psycopg2_module.Warning, self._psycopg2_module.Error) as exc:
             if self._reading:
                 self._loop.remove_reader(self._fileno)
                 self._reading = False
@@ -98,7 +106,7 @@ class Connection:
             if not self._waiter.cancelled():
                 self._waiter.set_exception(exc)
         else:
-            if state == POLL_OK:
+            if state == self._psycopg2_module.extensions.POLL_OK:
                 if self._reading:
                     self._loop.remove_reader(self._fileno)
                     self._reading = False
@@ -107,21 +115,21 @@ class Connection:
                     self._writing = False
                 if not self._waiter.cancelled():
                     self._waiter.set_result(None)
-            elif state == POLL_READ:
+            elif state == self._psycopg2_module.extensions.POLL_READ:
                 if not self._reading:
                     self._loop.add_reader(self._fileno, self._ready)
                     self._reading = True
                 if self._writing:
                     self._loop.remove_writer(self._fileno)
                     self._writing = False
-            elif state == POLL_WRITE:
+            elif state == self._psycopg2_module.extensions.POLL_WRITE:
                 if self._reading:
                     self._loop.remove_reader(self._fileno)
                     self._reading = False
                 if not self._writing:
                     self._loop.add_writer(self._fileno, self._ready)
                     self._writing = True
-            elif state == POLL_ERROR:
+            elif state == self._psycopg2_module.extensions.POLL_ERROR:
                 self._fatal_error("Fatal error on aiopg connection: "
                                   "POLL_ERROR from underlying .poll() call")
             else:
@@ -138,7 +146,7 @@ class Connection:
             })
         self.close()
         if self._waiter and not self._waiter.done():
-            self._waiter.set_exception(psycopg2.OperationalError(message))
+            self._waiter.set_exception(self._psycopg2_module.OperationalError(message))
 
     def _create_waiter(self, func_name):
         if self._waiter is not None:
@@ -179,7 +187,7 @@ class Connection:
                                        cursor_factory=cursor_factory,
                                        scrollable=scrollable,
                                        withhold=withhold)
-        return Cursor(self, impl, timeout, self._echo)
+        return Cursor(self, impl, timeout, self._echo, self._psycopg2_module)
 
     @asyncio.coroutine
     def _cursor(self, name=None, cursor_factory=None,
@@ -205,7 +213,7 @@ class Connection:
         self._conn.close()
         if self._waiter is not None and not self._waiter.done():
             self._waiter.set_exception(
-                psycopg2.OperationalError("Connection closed"))
+                self._psycopg2_module.OperationalError("Connection closed"))
         ret = asyncio.Future(loop=self._loop)
         ret.set_result(None)
         return ret
@@ -227,12 +235,12 @@ class Connection:
 
     @asyncio.coroutine
     def commit(self):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "commit cannot be used in asynchronous mode")
 
     @asyncio.coroutine
     def rollback(self):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "rollback cannot be used in asynchronous mode")
 
     # TPC
@@ -243,27 +251,27 @@ class Connection:
 
     @asyncio.coroutine
     def tpc_begin(self, xid=None):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "tpc_begin cannot be used in asynchronous mode")
 
     @asyncio.coroutine
     def tpc_prepare(self):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "tpc_prepare cannot be used in asynchronous mode")
 
     @asyncio.coroutine
     def tpc_commit(self, xid=None):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "tpc_commit cannot be used in asynchronous mode")
 
     @asyncio.coroutine
     def tpc_rollback(self, xid=None):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "tpc_rollback cannot be used in asynchronous mode")
 
     @asyncio.coroutine
     def tpc_recover(self):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "tpc_recover cannot be used in asynchronous mode")
 
     @asyncio.coroutine
@@ -277,7 +285,7 @@ class Connection:
 
     @asyncio.coroutine
     def reset(self):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "reset cannot be used in asynchronous mode")
 
     @property
@@ -293,7 +301,7 @@ class Connection:
     @asyncio.coroutine
     def set_session(self, *, isolation_level=None, readonly=None,
                     deferrable=None, autocommit=None):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "set_session cannot be used in asynchronous mode")
 
     @property
@@ -375,7 +383,7 @@ class Connection:
 
     @asyncio.coroutine
     def lobject(self, *args, **kwargs):
-        raise psycopg2.ProgrammingError(
+        raise self._psycopg2_module.ProgrammingError(
             "lobject cannot be used in asynchronous mode")
 
     @property

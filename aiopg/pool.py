@@ -2,9 +2,7 @@ import asyncio
 import collections
 
 
-from psycopg2.extensions import TRANSACTION_STATUS_IDLE
-
-from .connection import connect, TIMEOUT
+from .connection import connect, TIMEOUT, get_psycopg2_module
 from .log import logger
 
 
@@ -12,14 +10,16 @@ from .log import logger
 def create_pool(dsn=None, *, minsize=10, maxsize=10,
                 loop=None, timeout=TIMEOUT,
                 enable_json=True, enable_hstore=True,
-                echo=False,
+                echo=False, psycopg2_module_name='psycopg2',
                 **kwargs):
     if loop is None:
         loop = asyncio.get_event_loop()
 
+    psycopg2_module = get_psycopg2_module(psycopg2_module_name)
+
     pool = Pool(dsn, minsize, maxsize, loop, timeout,
                 enable_json=enable_json, enable_hstore=enable_hstore,
-                echo=echo,
+                echo=echo, psycopg2_module=psycopg2_module,
                 **kwargs)
     if minsize > 0:
         with (yield from pool._cond):
@@ -31,7 +31,7 @@ class Pool(asyncio.AbstractServer):
     """Connection pool"""
 
     def __init__(self, dsn, minsize, maxsize, loop, timeout, *,
-                 enable_json, enable_hstore, echo, **kwargs):
+                 enable_json, enable_hstore, echo, psycopg2_module, **kwargs):
         if minsize < 0:
             raise ValueError("minsize should be zero or greater")
         if maxsize < minsize:
@@ -43,6 +43,7 @@ class Pool(asyncio.AbstractServer):
         self._enable_json = enable_json
         self._enable_hstore = enable_hstore
         self._echo = echo
+        self._psycopg2_module = psycopg2_module
         self._conn_kwargs = kwargs
         self._acquiring = 0
         self._free = collections.deque(maxlen=maxsize)
@@ -155,7 +156,7 @@ class Pool(asyncio.AbstractServer):
                     self._dsn, loop=self._loop, timeout=self._timeout,
                     enable_json=self._enable_json,
                     enable_hstore=self._enable_hstore,
-                    echo=self._echo,
+                    echo=self._echo, psycopg2_module_name=self._psycopg2_module.__name__,
                     **self._conn_kwargs)
                 # raise exception if pool is closing
                 self._free.append(conn)
@@ -172,7 +173,7 @@ class Pool(asyncio.AbstractServer):
                     self._dsn, loop=self._loop, timeout=self._timeout,
                     enable_json=self._enable_json,
                     enable_hstore=self._enable_hstore,
-                    echo=self._echo,
+                    echo=self._echo, psycopg2_module_name=self._psycopg2_module.__name__,
                     **self._conn_kwargs)
                 # raise exception if pool is closing
                 self._free.append(conn)
@@ -198,7 +199,7 @@ class Pool(asyncio.AbstractServer):
         self._used.remove(conn)
         if not conn.closed:
             tran_status = conn._conn.get_transaction_status()
-            if tran_status != TRANSACTION_STATUS_IDLE:
+            if tran_status != self._psycopg2_module.extensions.TRANSACTION_STATUS_IDLE:
                 logger.warning(
                     "Invalid transaction status on released connection: %d",
                     tran_status)

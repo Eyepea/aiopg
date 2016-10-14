@@ -156,7 +156,8 @@ class Pool(asyncio.AbstractServer):
                     self._dsn, loop=self._loop, timeout=self._timeout,
                     enable_json=self._enable_json,
                     enable_hstore=self._enable_hstore,
-                    echo=self._echo, psycopg2_module_name=self._psycopg2_module.__name__,
+                    echo=self._echo,
+                    psycopg2_module_name=self._psycopg2_module.__name__,
                     **self._conn_kwargs)
                 # raise exception if pool is closing
                 self._free.append(conn)
@@ -173,7 +174,8 @@ class Pool(asyncio.AbstractServer):
                     self._dsn, loop=self._loop, timeout=self._timeout,
                     enable_json=self._enable_json,
                     enable_hstore=self._enable_hstore,
-                    echo=self._echo, psycopg2_module_name=self._psycopg2_module.__name__,
+                    echo=self._echo,
+                    psycopg2_module_name=self._psycopg2_module.__name__,
                     **self._conn_kwargs)
                 # raise exception if pool is closing
                 self._free.append(conn)
@@ -199,7 +201,8 @@ class Pool(asyncio.AbstractServer):
         self._used.remove(conn)
         if not conn.closed:
             tran_status = conn._conn.get_transaction_status()
-            if tran_status != self._psycopg2_module.extensions.TRANSACTION_STATUS_IDLE:
+            if tran_status != \
+                    self._psycopg2_module.extensions.TRANSACTION_STATUS_IDLE:
                 logger.warning(
                     "Invalid transaction status on released connection: %d",
                     tran_status)

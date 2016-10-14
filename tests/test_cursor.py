@@ -1,16 +1,16 @@
 import asyncio
 import aiopg
-import psycopg2
-import psycopg2.tz
 import time
+from . import AioPgTestCase
 import unittest
 
 from aiopg.connection import TIMEOUT
 
 
-class TestCursor(unittest.TestCase):
+class TestCursor(AioPgTestCase):
 
     def setUp(self):
+        super().setUp()
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(None)
 
@@ -25,6 +25,7 @@ class TestCursor(unittest.TestCase):
                                          password='passwd',
                                          host='127.0.0.1',
                                          loop=self.loop,
+                                         psycopg2_module_name=self.psycopg2_module_name,
                                          **kwargs))
         cur = yield from conn.cursor()
         yield from cur.execute("DROP TABLE IF EXISTS tbl")
@@ -93,7 +94,7 @@ class TestCursor(unittest.TestCase):
             cur = yield from conn.cursor()
             cur.close()
             self.assertTrue(cur.closed)
-            with self.assertRaises(psycopg2.InterfaceError):
+            with self.assertRaises(self.psycopg2_module.InterfaceError):
                 yield from cur.execute('SELECT 1')
 
         self.loop.run_until_complete(go())
@@ -107,7 +108,7 @@ class TestCursor(unittest.TestCase):
             cur.close()
             cur.close()
             self.assertTrue(cur.closed)
-            with self.assertRaises(psycopg2.InterfaceError):
+            with self.assertRaises(self.psycopg2_module.InterfaceError):
                 yield from cur.execute('SELECT 1')
             self.assertIsNone(conn._waiter)
 
@@ -140,7 +141,7 @@ class TestCursor(unittest.TestCase):
             conn = yield from self.connect()
             cur = yield from conn.cursor()
             self.assertEqual(None, cur.scrollable)
-            with self.assertRaises(psycopg2.ProgrammingError):
+            with self.assertRaises(self.psycopg2_module.ProgrammingError):
                 cur.scrollable = True
 
         self.loop.run_until_complete(go())
@@ -152,7 +153,7 @@ class TestCursor(unittest.TestCase):
             conn = yield from self.connect()
             cur = yield from conn.cursor()
             self.assertEqual(False, cur.withhold)
-            with self.assertRaises(psycopg2.ProgrammingError):
+            with self.assertRaises(self.psycopg2_module.ProgrammingError):
                 cur.withhold = True
 
         self.loop.run_until_complete(go())
@@ -175,7 +176,7 @@ class TestCursor(unittest.TestCase):
         def go():
             conn = yield from self.connect()
             cur = yield from conn.cursor()
-            with self.assertRaises(psycopg2.ProgrammingError):
+            with self.assertRaises(self.psycopg2_module.ProgrammingError):
                 yield from cur.executemany('SELECT %s', ['1', '2'])
 
         self.loop.run_until_complete(go())
@@ -327,10 +328,10 @@ class TestCursor(unittest.TestCase):
         def go():
             conn = yield from self.connect()
             cur = yield from conn.cursor()
-            self.assertIs(psycopg2.tz.FixedOffsetTimezone, cur.tzinfo_factory)
+            self.assertIs(self.psycopg2_module.tz.FixedOffsetTimezone, cur.tzinfo_factory)
 
-            cur.tzinfo_factory = psycopg2.tz.LocalTimezone
-            self.assertIs(psycopg2.tz.LocalTimezone, cur.tzinfo_factory)
+            cur.tzinfo_factory = self.psycopg2_module.tz.LocalTimezone
+            self.assertIs(self.psycopg2_module.tz.LocalTimezone, cur.tzinfo_factory)
 
         self.loop.run_until_complete(go())
 
@@ -340,7 +341,7 @@ class TestCursor(unittest.TestCase):
         def go():
             conn = yield from self.connect()
             cur = yield from conn.cursor()
-            with self.assertRaises(psycopg2.NotSupportedError):
+            with self.assertRaises(self.psycopg2_module.NotSupportedError):
                 yield from cur.nextset()
 
         self.loop.run_until_complete(go())
@@ -361,11 +362,11 @@ class TestCursor(unittest.TestCase):
         def go():
             conn = yield from self.connect()
             cur = yield from conn.cursor()
-            with self.assertRaises(psycopg2.ProgrammingError):
+            with self.assertRaises(self.psycopg2_module.ProgrammingError):
                 yield from cur.copy_from('file', 'table')
-            with self.assertRaises(psycopg2.ProgrammingError):
+            with self.assertRaises(self.psycopg2_module.ProgrammingError):
                 yield from cur.copy_to('file', 'table')
-            with self.assertRaises(psycopg2.ProgrammingError):
+            with self.assertRaises(self.psycopg2_module.ProgrammingError):
                 yield from cur.copy_expert('sql', 'table')
 
         self.loop.run_until_complete(go())
@@ -381,7 +382,7 @@ class TestCursor(unittest.TestCase):
             self.assertEqual((2,), ret)
 
             cur.close()
-            with self.assertRaises(psycopg2.InterfaceError):
+            with self.assertRaises(self.psycopg2_module.InterfaceError):
                 yield from cur.callproc('inc', [1])
             self.assertIsNone(conn._waiter)
 

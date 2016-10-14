@@ -10,13 +10,12 @@ _IMPORT_CACHE = {}
 
 TIMEOUT = 60.
 
+
 def get_psycopg2_module(psycopg2_module_name):
     if psycopg2_module_name not in _IMPORT_CACHE:
         return importlib.import_module(psycopg2_module_name)
     else:
         return _IMPORT_CACHE[psycopg2_module_name]
-
-
 
 
 @asyncio.coroutine
@@ -39,7 +38,8 @@ def _enable_hstore(conn):
 
 @asyncio.coroutine
 def connect(dsn=None, *, timeout=TIMEOUT, loop=None,
-            enable_json=True, enable_hstore=True, echo=False, psycopg2_module_name='psycopg2', **kwargs):
+            enable_json=True, enable_hstore=True, echo=False,
+            psycopg2_module_name='psycopg2', **kwargs):
     """A factory for connecting to PostgreSQL.
 
     The coroutine accepts all parameters that psycopg2.connect() does
@@ -54,7 +54,8 @@ def connect(dsn=None, *, timeout=TIMEOUT, loop=None,
     psycopg2_module = get_psycopg2_module(psycopg2_module_name)
 
     waiter = asyncio.Future(loop=loop)
-    conn = Connection(dsn, loop, timeout, waiter, bool(echo), psycopg2_module, **kwargs)
+    conn = Connection(dsn, loop, timeout, waiter, bool(echo),
+                      psycopg2_module, **kwargs)
     yield from conn._poll(waiter, timeout)
     if enable_json:
         psycopg2_module.extras.register_default_json(conn._conn)
@@ -62,7 +63,9 @@ def connect(dsn=None, *, timeout=TIMEOUT, loop=None,
         oids = yield from _enable_hstore(conn)
         if oids is not None:
             oid, array_oid = oids
-            psycopg2_module.extras.register_hstore(conn._conn, oid=oid, array_oid=array_oid)
+            psycopg2_module.extras.register_hstore(conn._conn,
+                                                   oid=oid,
+                                                   array_oid=array_oid)
     return conn
 
 
@@ -74,7 +77,8 @@ class Connection:
 
     """
 
-    def __init__(self, dsn, loop, timeout, waiter, echo, psycopg2_module, **kwargs):
+    def __init__(self, dsn, loop, timeout, waiter, echo,
+                 psycopg2_module, **kwargs):
         self._loop = loop
         self._psycopg2_module = psycopg2_module
         self._conn = self._psycopg2_module.connect(dsn, async=True, **kwargs)
@@ -96,7 +100,8 @@ class Connection:
 
         try:
             state = self._conn.poll()
-        except (self._psycopg2_module.Warning, self._psycopg2_module.Error) as exc:
+        except (self._psycopg2_module.Warning,
+                self._psycopg2_module.Error) as exc:
             if self._reading:
                 self._loop.remove_reader(self._fileno)
                 self._reading = False
@@ -146,7 +151,8 @@ class Connection:
             })
         self.close()
         if self._waiter and not self._waiter.done():
-            self._waiter.set_exception(self._psycopg2_module.OperationalError(message))
+            self._waiter.set_exception(
+                self._psycopg2_module.OperationalError(message))
 
     def _create_waiter(self, func_name):
         if self._waiter is not None:
